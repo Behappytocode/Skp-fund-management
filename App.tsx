@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppState, User, UserRole, UserStatus, Deposit, Loan, LoanRequest } from './types';
 import Login from './components/Auth/Login';
@@ -15,7 +14,6 @@ import MemberCircle from './components/Member/MemberCircle';
 import DeveloperProfile from './components/Developer/DeveloperProfile';
 import UserProfile from './components/Profile/UserProfile';
 
-// Initial dummy data for first run
 const INITIAL_DATA: AppState = {
   users: [
     { 
@@ -27,9 +25,7 @@ const INITIAL_DATA: AppState = {
       balance: 0,
       designation: 'Full Stack Developer',
       avatar: 'https://images.unsplash.com/photo-1633332755192-727a05c4013d?q=80&w=200&h=200&auto=format&fit=crop'
-    },
-    { id: '2', name: 'John Doe', email: 'john@member.com', role: UserRole.MEMBER, status: UserStatus.APPROVED, balance: 0 },
-    { id: '3', name: 'Jane Smith', email: 'jane@member.com', role: UserRole.MEMBER, status: UserStatus.APPROVED, balance: 0 },
+    }
   ],
   deposits: [],
   loans: [],
@@ -40,7 +36,14 @@ const INITIAL_DATA: AppState = {
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem('fund_app_state');
-    return saved ? JSON.parse(saved) : INITIAL_DATA;
+    if (saved) {
+      try {
+        return JSON.parse(saved) as AppState;
+      } catch (e) {
+        return INITIAL_DATA;
+      }
+    }
+    return INITIAL_DATA;
   });
 
   useEffect(() => {
