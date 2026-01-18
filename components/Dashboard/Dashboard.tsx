@@ -77,11 +77,30 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         <p className="text-slate-500 text-sm mt-0.5">Automated fund tracking & audit overview.</p>
       </header>
 
+      {/* Main Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title="Current Balance" value={stats.currentBalance} icon={CircleDollarSign} color="bg-indigo-600" />
         <StatCard title="Total Deposits" value={stats.totalDeposits} icon={TrendingUp} color="bg-emerald-500" />
         <StatCard title="Total Loans" value={stats.totalIssued} icon={ArrowUpRight} color="bg-amber-500" />
         <StatCard title="Recoveries" value={stats.totalRecoveries} icon={ArrowDownRight} color="bg-blue-500" />
+      </div>
+
+      {/* Waiver Audit Summary - Moved here from bottom */}
+      <div className="bg-slate-900 rounded-3xl p-6 text-white flex flex-col md:flex-row justify-between items-center gap-4 shadow-xl shadow-slate-200/50">
+        <div className="text-center md:text-left">
+          <h3 className="text-lg font-bold">Waiver Audit Summary</h3>
+          <p className="text-slate-400 text-xs mt-1">Total non-recoverable portion (30% Rule)</p>
+        </div>
+        <div className="flex gap-8">
+          <div className="text-center">
+            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.1em]">Total Members</p>
+            <p className="text-2xl font-black">{stats.totalMembers}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-amber-400 text-[10px] font-bold uppercase tracking-[0.1em]">Waiver Total</p>
+            <p className="text-2xl font-black text-amber-400">{formatCurrency(stats.totalWaivers)}</p>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -139,23 +158,6 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
             ) : (
               <div className="h-full flex items-center justify-center text-slate-400 italic text-sm">No loan distributions yet.</div>
             )}
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-slate-900 rounded-3xl p-6 text-white flex flex-col md:flex-row justify-between items-center gap-4">
-        <div className="text-center md:text-left">
-          <h3 className="text-lg font-bold">Waiver Audit Summary</h3>
-          <p className="text-slate-400 text-xs mt-1">Total non-recoverable portion (30% Rule)</p>
-        </div>
-        <div className="flex gap-8">
-          <div className="text-center">
-            <p className="text-slate-400 text-[10px] font-bold uppercase">Total Members</p>
-            <p className="text-2xl font-black">{stats.totalMembers}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-amber-400 text-[10px] font-bold uppercase">Waiver Total</p>
-            <p className="text-2xl font-black text-amber-400">{formatCurrency(stats.totalWaivers)}</p>
           </div>
         </div>
       </div>
