@@ -1,14 +1,16 @@
-
 import React, { useState } from 'react';
-import { AppState, UserRole } from '../../types';
+import { AppState, UserRole, Loan } from '../../types';
 import { 
   Plus, Search, ShieldCheck, ChevronRight, 
-  Download, Upload, Calculator, Clock, CreditCard
+  Download, Upload, Calculator, Clock, CreditCard,
+  Edit3, Trash2, X
 } from 'lucide-react';
 
 interface LoanManagerProps {
   state: AppState;
   onAdd: (data: { memberId: string, amount: number, term: number }) => void;
+  onUpdate: (id: string, data: { amount: number, term: number }) => void;
+  onDelete: (id: string) => void;
   onPay: (loanId: string, installmentId: string) => void;
   onBackup: () => void;
   onRestore: (file: File) => void;
@@ -16,8 +18,9 @@ interface LoanManagerProps {
 
 const formatCurrency = (val: number) => `Rs. ${Math.round(val).toLocaleString()}`;
 
-const LoanManager: React.FC<LoanManagerProps> = ({ state, onAdd, onPay, onBackup, onRestore }) => {
+const LoanManager: React.FC<LoanManagerProps> = ({ state, onAdd, onUpdate, onDelete, onPay, onBackup, onRestore }) => {
   const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'COMPLETED'>('ACTIVE');
   const [search, setSearch] = useState('');
   const [formData, setFormData] = useState({
@@ -26,15 +29,45 @@ const LoanManager: React.FC<LoanManagerProps> = ({ state, onAdd, onPay, onBackup
     term: 6
   });
 
+  const handleEdit = (loan: Loan) => {
+    setEditingId(loan.id);
+    setFormData({
+      memberId: loan.memberId,
+      amount: loan.totalAmount.toString(),
+      term: loan.term
+    });
+    setShowModal(true);
+  };
+
+  const handleDelete = (id: string) => {
+    if (window.confirm('Delete this loan? Repayment history will be lost.')) {
+      onDelete(id);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.memberId || !formData.amount) return;
-    onAdd({
-      memberId: formData.memberId,
-      amount: parseFloat(formData.amount),
-      term: formData.term
-    });
+    
+    if (editingId) {
+      onUpdate(editingId, {
+        amount: parseFloat(formData.amount),
+        term: formData.term
+      });
+    } else {
+      onAdd({
+        memberId: formData.memberId,
+        amount: parseFloat(formData.amount),
+        term: formData.term
+      });
+    }
+    
+    closeModal();
+  };
+
+  const closeModal = () => {
     setShowModal(false);
+    setEditingId(null);
     setFormData({ memberId: '', amount: '', term: 6 });
   };
 
@@ -105,7 +138,24 @@ const LoanManager: React.FC<LoanManagerProps> = ({ state, onAdd, onPay, onBackup
 
       <div className="space-y-4">
         {filteredLoans.map((loan) => (
-          <div key={loan.id} className="bg-white rounded-[2rem] border border-slate-200 p-6 hover:shadow-lg transition-all">
+          <div key={loan.id} className="bg-white rounded-[2rem] border border-slate-200 p-6 hover:shadow-lg transition-all relative group">
+            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+               <button 
+                onClick={() => handleEdit(loan)}
+                className="p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors"
+                title="Amend Loan"
+              >
+                <Edit3 className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={() => handleDelete(loan.id)}
+                className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition-colors"
+                title="Delete Loan"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+            
             <div className="flex justify-between items-start mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
@@ -199,9 +249,9 @@ const LoanManager: React.FC<LoanManagerProps> = ({ state, onAdd, onPay, onBackup
         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] w-full max-w-2xl overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-300">
             <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
-              <h2 className="text-xl font-black">Issue Emergency Loan</h2>
-              <button onClick={() => setShowModal(false)} className="bg-white/10 hover:bg-white/20 p-2 rounded-xl">
-                <Plus className="w-5 h-5 rotate-45" />
+              <h2 className="text-xl font-black">{editingId ? 'Amend Emergency Loan' : 'Issue Emergency Loan'}</h2>
+              <button onClick={closeModal} className="bg-white/10 hover:bg-white/20 p-2 rounded-xl">
+                <X className="w-5 h-5" />
               </button>
             </div>
             <div className="flex flex-col md:flex-row">
@@ -213,6 +263,7 @@ const LoanManager: React.FC<LoanManagerProps> = ({ state, onAdd, onPay, onBackup
                     className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-bold"
                     value={formData.memberId}
                     onChange={(e) => setFormData({...formData, memberId: e.target.value})}
+                    disabled={!!editingId}
                   >
                     <option value="">Choose Recipient</option>
                     {state.users.filter(u => u.role === UserRole.MEMBER).map(u => (
@@ -254,7 +305,7 @@ const LoanManager: React.FC<LoanManagerProps> = ({ state, onAdd, onPay, onBackup
                 </div>
 
                 <button className="w-full bg-indigo-600 text-white py-4 rounded-[2rem] font-black text-sm hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 uppercase tracking-widest flex items-center justify-center gap-2">
-                  Verify & Issue <ChevronRight className="w-4 h-4" />
+                  {editingId ? 'Update Loan' : 'Verify & Issue'} <ChevronRight className="w-4 h-4" />
                 </button>
               </form>
               

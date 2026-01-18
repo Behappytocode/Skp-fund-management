@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AppState, User, UserRole, UserStatus, Deposit, Loan, LoanRequest } from './types.ts';
+import { AppState, User, UserRole, UserStatus, Deposit, Loan, LoanRequest, Installment } from './types.ts';
 import Login from './components/Auth/Login.tsx';
 import Signup from './components/Auth/Signup.tsx';
 import Layout from './components/Layout/Layout.tsx';
@@ -108,6 +108,20 @@ const App: React.FC = () => {
     }));
   };
 
+  const updateDeposit = (updatedDeposit: Deposit) => {
+    setState(prev => ({
+      ...prev,
+      deposits: prev.deposits.map(d => d.id === updatedDeposit.id ? updatedDeposit : d)
+    }));
+  };
+
+  const deleteDeposit = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      deposits: prev.deposits.filter(d => d.id !== id)
+    }));
+  };
+
   const addLoanRequest = (amount: number, term: number) => {
     if (!state.currentUser) return;
     const newRequest: LoanRequest = {
@@ -136,7 +150,7 @@ const App: React.FC = () => {
         const waiverAmount = request.amount * 0.3;
         const monthlyAmount = recoverableAmount / request.term;
         
-        const installments = Array.from({ length: request.term }).map((_, i) => {
+        const installments: Installment[] = Array.from({ length: request.term }).map((_, i) => {
           const dueDate = new Date();
           dueDate.setMonth(dueDate.getMonth() + i + 1);
           return {
@@ -178,7 +192,7 @@ const App: React.FC = () => {
     const waiverAmount = loanData.amount * 0.3;
     const monthlyAmount = recoverableAmount / loanData.term;
     
-    const installments = Array.from({ length: loanData.term }).map((_, i) => {
+    const installments: Installment[] = Array.from({ length: loanData.term }).map((_, i) => {
       const dueDate = new Date();
       dueDate.setMonth(dueDate.getMonth() + i + 1);
       return {
@@ -205,6 +219,50 @@ const App: React.FC = () => {
     setState(prev => ({
       ...prev,
       loans: [newLoan, ...prev.loans]
+    }));
+  };
+
+  const updateLoan = (loanId: string, loanData: { amount: number, term: number }) => {
+    setState(prev => {
+      const existingLoan = prev.loans.find(l => l.id === loanId);
+      if (!existingLoan) return prev;
+
+      const recoverableAmount = loanData.amount * 0.7;
+      const waiverAmount = loanData.amount * 0.3;
+      const monthlyAmount = recoverableAmount / loanData.term;
+
+      const installments: Installment[] = Array.from({ length: loanData.term }).map((_, i) => {
+        const dueDate = new Date(existingLoan.issuedDate);
+        dueDate.setMonth(dueDate.getMonth() + i + 1);
+        return {
+          id: `inst-${Date.now()}-${i}`,
+          amount: Number(monthlyAmount.toFixed(2)),
+          dueDate: dueDate.toISOString(),
+          status: 'PENDING' as const
+        };
+      });
+
+      const updatedLoan: Loan = {
+        ...existingLoan,
+        totalAmount: loanData.amount,
+        recoverableAmount,
+        waiverAmount,
+        term: loanData.term,
+        installments,
+        status: 'ACTIVE'
+      };
+
+      return {
+        ...prev,
+        loans: prev.loans.map(l => l.id === loanId ? updatedLoan : l)
+      };
+    });
+  };
+
+  const deleteLoan = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      loans: prev.loans.filter(l => l.id !== id)
     }));
   };
 
@@ -262,8 +320,25 @@ const App: React.FC = () => {
           
           {isAdmin ? (
             <>
-              <Route path="deposits" element={<DepositManager state={state} onAdd={addDeposit} />} />
-              <Route path="loans" element={<LoanManager state={state} onAdd={addLoan} onPay={payInstallment} onBackup={backupData} onRestore={restoreData} />} />
+              <Route path="deposits" element={
+                <DepositManager 
+                  state={state} 
+                  onAdd={addDeposit} 
+                  onUpdate={updateDeposit}
+                  onDelete={deleteDeposit}
+                />
+              } />
+              <Route path="loans" element={
+                <LoanManager 
+                  state={state} 
+                  onAdd={addLoan} 
+                  onUpdate={updateLoan}
+                  onDelete={deleteLoan}
+                  onPay={payInstallment} 
+                  onBackup={backupData} 
+                  onRestore={restoreData} 
+                />
+              } />
               <Route path="requests" element={<MemberRequests state={state} onUpdateStatus={updateUserStatus} onUpdateLoanRequest={updateLoanRequestStatus} />} />
             </>
           ) : (

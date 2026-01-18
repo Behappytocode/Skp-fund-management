@@ -1,17 +1,19 @@
-
 import React, { useState } from 'react';
 import { AppState, Deposit, UserRole } from '../../types';
-import { Plus, Search, Image as ImageIcon, FileText } from 'lucide-react';
+import { Plus, Search, Image as ImageIcon, Edit3, Trash2, X } from 'lucide-react';
 
 interface DepositManagerProps {
   state: AppState;
   onAdd: (deposit: Omit<Deposit, 'id' | 'entryDate'>) => void;
+  onUpdate: (deposit: Deposit) => void;
+  onDelete: (id: string) => void;
 }
 
 const formatCurrency = (val: number) => `Rs. ${Math.round(val).toLocaleString()}`;
 
-const DepositManager: React.FC<DepositManagerProps> = ({ state, onAdd }) => {
+const DepositManager: React.FC<DepositManagerProps> = ({ state, onAdd, onUpdate, onDelete }) => {
   const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [formData, setFormData] = useState({
     memberId: '',
@@ -21,6 +23,19 @@ const DepositManager: React.FC<DepositManagerProps> = ({ state, onAdd }) => {
     notes: '',
     receiptImage: ''
   });
+
+  const handleEdit = (deposit: Deposit) => {
+    setEditingId(deposit.id);
+    setFormData({
+      memberId: deposit.memberId,
+      amount: deposit.amount.toString(),
+      paymentDate: deposit.paymentDate.split('T')[0],
+      description: deposit.description || '',
+      notes: deposit.notes || '',
+      receiptImage: deposit.receiptImage || ''
+    });
+    setShowModal(true);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -38,17 +53,36 @@ const DepositManager: React.FC<DepositManagerProps> = ({ state, onAdd }) => {
     const member = state.users.find(u => u.id === formData.memberId);
     if (!member || !formData.amount) return;
 
-    onAdd({
-      memberId: formData.memberId,
-      memberName: member.name,
-      amount: parseFloat(formData.amount),
-      paymentDate: formData.paymentDate,
-      description: formData.description,
-      notes: formData.notes,
-      receiptImage: formData.receiptImage
-    });
+    if (editingId) {
+      onUpdate({
+        id: editingId,
+        memberId: formData.memberId,
+        memberName: member.name,
+        amount: parseFloat(formData.amount),
+        paymentDate: formData.paymentDate,
+        description: formData.description,
+        notes: formData.notes,
+        receiptImage: formData.receiptImage,
+        entryDate: state.deposits.find(d => d.id === editingId)?.entryDate || new Date().toISOString()
+      });
+    } else {
+      onAdd({
+        memberId: formData.memberId,
+        memberName: member.name,
+        amount: parseFloat(formData.amount),
+        paymentDate: formData.paymentDate,
+        description: formData.description,
+        notes: formData.notes,
+        receiptImage: formData.receiptImage
+      });
+    }
 
+    closeModal();
+  };
+
+  const closeModal = () => {
     setShowModal(false);
+    setEditingId(null);
     setFormData({ 
       memberId: '', 
       amount: '', 
@@ -57,6 +91,12 @@ const DepositManager: React.FC<DepositManagerProps> = ({ state, onAdd }) => {
       notes: '', 
       receiptImage: '' 
     });
+  };
+
+  const handleDelete = (id: string) => {
+    if (window.confirm('Are you sure you want to remove this contribution record?')) {
+      onDelete(id);
+    }
   };
 
   const filteredDeposits = state.deposits.filter(d => 
@@ -98,7 +138,7 @@ const DepositManager: React.FC<DepositManagerProps> = ({ state, onAdd }) => {
               <tr>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Member & Details</th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Receipt</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -115,16 +155,31 @@ const DepositManager: React.FC<DepositManagerProps> = ({ state, onAdd }) => {
                   </td>
                   <td className="px-6 py-4 font-black text-emerald-600 text-sm">{formatCurrency(d.amount)}</td>
                   <td className="px-6 py-4">
-                    {d.receiptImage ? (
+                    <div className="flex items-center justify-center gap-2">
+                      {d.receiptImage && (
+                        <button 
+                          onClick={() => window.open(d.receiptImage)}
+                          className="bg-indigo-50 text-indigo-600 p-2 rounded-xl hover:bg-indigo-100 transition-colors"
+                          title="View Receipt"
+                        >
+                          <ImageIcon className="w-4 h-4" />
+                        </button>
+                      )}
                       <button 
-                        onClick={() => window.open(d.receiptImage)}
-                        className="bg-indigo-50 text-indigo-600 p-2 rounded-xl hover:bg-indigo-100 transition-colors"
+                        onClick={() => handleEdit(d)}
+                        className="bg-slate-100 text-slate-600 p-2 rounded-xl hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                        title="Edit Record"
                       >
-                        <ImageIcon className="w-4 h-4" />
+                        <Edit3 className="w-4 h-4" />
                       </button>
-                    ) : (
-                      <span className="text-[10px] font-bold text-slate-300 uppercase">None</span>
-                    )}
+                      <button 
+                        onClick={() => handleDelete(d.id)}
+                        className="bg-slate-100 text-slate-400 p-2 rounded-xl hover:bg-red-50 hover:text-red-600 transition-colors"
+                        title="Delete Record"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -144,9 +199,9 @@ const DepositManager: React.FC<DepositManagerProps> = ({ state, onAdd }) => {
         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] w-full max-w-lg overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-300">
             <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
-              <h2 className="text-xl font-black">Log Contribution</h2>
-              <button onClick={() => setShowModal(false)} className="bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors">
-                <Plus className="w-5 h-5 rotate-45" />
+              <h2 className="text-xl font-black">{editingId ? 'Update Contribution' : 'Log Contribution'}</h2>
+              <button onClick={closeModal} className="bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors">
+                <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-8 space-y-5">
@@ -157,6 +212,7 @@ const DepositManager: React.FC<DepositManagerProps> = ({ state, onAdd }) => {
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
                   value={formData.memberId}
                   onChange={(e) => setFormData({...formData, memberId: e.target.value})}
+                  disabled={!!editingId}
                 >
                   <option value="">Select Member</option>
                   {state.users.filter(u => u.role === UserRole.MEMBER).map(u => (
@@ -224,7 +280,7 @@ const DepositManager: React.FC<DepositManagerProps> = ({ state, onAdd }) => {
               </div>
 
               <button className="w-full bg-slate-900 text-white py-4 rounded-[2rem] font-black text-sm hover:bg-slate-800 transition-all shadow-xl shadow-slate-200 mt-2 uppercase tracking-widest">
-                Confirm Record
+                {editingId ? 'Save Changes' : 'Confirm Record'}
               </button>
             </form>
           </div>
