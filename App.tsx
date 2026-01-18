@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AppState, User, UserRole, UserStatus, Deposit, Loan, LoanRequest } from './types';
-import Login from './components/Auth/Login';
-import Signup from './components/Auth/Signup';
-import Layout from './components/Layout/Layout';
-import Dashboard from './components/Dashboard/Dashboard';
-import DepositManager from './components/Management/DepositManager';
-import LoanManager from './components/Management/LoanManager';
-import MemberRequests from './components/Management/MemberRequests';
-import MemberHistory from './components/Member/MemberHistory';
-import MemberLoans from './components/Member/MemberLoans';
-import MemberCircle from './components/Member/MemberCircle';
-import DeveloperProfile from './components/Developer/DeveloperProfile';
-import UserProfile from './components/Profile/UserProfile';
+import { AppState, User, UserRole, UserStatus, Deposit, Loan, LoanRequest } from './types.ts';
+import Login from './components/Auth/Login.tsx';
+import Signup from './components/Auth/Signup.tsx';
+import Layout from './components/Layout/Layout.tsx';
+import Dashboard from './components/Dashboard/Dashboard.tsx';
+import DepositManager from './components/Management/DepositManager.tsx';
+import LoanManager from './components/Management/LoanManager.tsx';
+import MemberRequests from './components/Management/MemberRequests.tsx';
+import MemberHistory from './components/Member/MemberHistory.tsx';
+import MemberLoans from './components/Member/MemberLoans.tsx';
+import MemberCircle from './components/Member/MemberCircle.tsx';
+import DeveloperProfile from './components/Developer/DeveloperProfile.tsx';
+import UserProfile from './components/Profile/UserProfile.tsx';
 
 const INITIAL_DATA: AppState = {
   users: [

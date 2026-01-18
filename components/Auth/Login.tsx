@@ -1,7 +1,6 @@
-
 import React, { useState } from 'react';
 import { UserRole } from '../../types';
-import { Handshake, Mail, ChevronRight } from 'lucide-react';
+import { Handshake, Mail, ChevronRight, ShieldCheck, User as UserIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 interface LoginProps {
@@ -18,52 +17,60 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setError('');
     const result = onLogin(email, role);
     if (!result.success) {
-      setError(result.message || 'Invalid credentials or role selection.');
+      setError(result.message || 'Login failed.');
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50 overflow-hidden">
+      <div className="w-full max-w-md animate-fade-in">
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-indigo-600 rounded-3xl shadow-xl shadow-indigo-200 mb-6">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-indigo-600 rounded-[2rem] shadow-2xl shadow-indigo-200 mb-6 transition-transform hover:scale-105">
             <Handshake className="w-10 h-10 text-white" />
           </div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">SKP Fund Management</h1>
-          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-2">Fellowship that Stands in Crisis</p>
+          <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mt-2 leading-none">Fellowship that Stands in Crisis</p>
         </div>
 
-        <div className="bg-white rounded-[2rem] shadow-2xl shadow-slate-200/50 p-10 border border-slate-100">
+        <div className="bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200/50 p-8 sm:p-10 border border-slate-100 animate-slide-up">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Access Role</label>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Access Role</label>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={() => setRole(UserRole.MEMBER)}
-                  className={`py-3 rounded-2xl font-bold text-sm transition-all ${role === UserRole.MEMBER ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                  className={`py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 border-2 ${
+                    role === UserRole.MEMBER 
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100' 
+                    : 'bg-white text-slate-400 border-slate-50 hover:border-slate-100'
+                  }`}
                 >
-                  Circle Member
+                  <UserIcon className="w-4 h-4" /> Circle Member
                 </button>
                 <button
                   type="button"
                   onClick={() => setRole(UserRole.ADMIN)}
-                  className={`py-3 rounded-2xl font-bold text-sm transition-all ${role === UserRole.ADMIN ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                  className={`py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 border-2 ${
+                    role === UserRole.ADMIN 
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100' 
+                    : 'bg-white text-slate-400 border-slate-50 hover:border-slate-100'
+                  }`}
                 >
-                  Fund Manager
+                  <ShieldCheck className="w-4 h-4" /> Fund Manager
                 </button>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Registered Email</label>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Registered Email</label>
               <div className="relative">
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
                 <input 
                   type="email" 
                   required
                   placeholder="name@company.com"
-                  className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold text-slate-900 text-sm"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
@@ -71,23 +78,33 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             </div>
 
             {error && (
-              <div className={`p-4 rounded-2xl text-sm font-bold text-center ${
-                error.includes('pending') ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-red-50 text-red-600 border border-red-100'
-              }`}>
+              <div className="bg-red-50 text-red-600 p-4 rounded-2xl text-[11px] font-bold border border-red-100 flex items-center gap-3 animate-shake">
+                <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse shrink-0" />
                 {error}
               </div>
             )}
 
-            <button className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-slate-800 transition-all flex items-center justify-center gap-2 group shadow-xl shadow-slate-200">
-              Sign In to Dashboard <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            <button className="w-full bg-slate-900 text-white py-4 rounded-[2rem] font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2 group shadow-xl shadow-slate-200">
+              Sign In to Dashboard <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </button>
           </form>
 
-          <div className="mt-8 pt-8 border-t border-slate-100 text-center">
-            <p className="text-slate-500 text-sm">
-              New to the circle? <Link to="/signup" className="text-indigo-600 font-bold hover:underline">Join Now</Link>
+          <div className="mt-10 pt-8 border-t border-slate-50 text-center">
+            <p className="text-slate-500 text-xs font-bold uppercase tracking-tighter">
+              New to the circle? <Link to="/signup" className="text-indigo-600 font-black hover:underline">Join Now</Link>
             </p>
           </div>
+        </div>
+
+        <div className="mt-8 flex justify-center gap-8 opacity-30">
+           <div className="flex flex-col items-center">
+              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Secured by</span>
+              <span className="text-[10px] font-black text-slate-600">CircleAuth</span>
+           </div>
+           <div className="flex flex-col items-center">
+              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Standard</span>
+              <span className="text-[10px] font-black text-slate-600">70/30 Recovery</span>
+           </div>
         </div>
       </div>
     </div>
