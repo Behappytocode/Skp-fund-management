@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
@@ -16,32 +17,16 @@ import DeveloperProfile from './components/Developer/DeveloperProfile.tsx';
 import UserProfile from './components/Profile/UserProfile.tsx';
 
 /**
- * Robustly retrieve environment variables across different execution contexts.
- * Checks Vite's `import.meta.env` first, then falls back to `process.env`.
+ * Access environment variables via process.env as per platform guidelines. 
+ * On Vercel, ensure these are added in Project Settings > Environment Variables.
  */
-const getEnvVar = (key: string): string => {
-  try {
-    // Try Vite-specific import.meta.env
-    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
-      return (import.meta as any).env[key] || '';
-    }
-    // Fallback to process.env (Vercel/Node/Standard injection)
-    if (typeof process !== 'undefined' && process.env) {
-      return process.env[key] || '';
-    }
-  } catch (e) {
-    console.warn(`Environment variable ${key} could not be retrieved safely.`, e);
-  }
-  return '';
-};
+// Fix: Use process.env instead of import.meta.env to resolve TypeScript property access errors
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
+// Fix: Use process.env instead of import.meta.env to resolve TypeScript property access errors
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || '';
 
-// Initialize Supabase Client
-const SUPABASE_URL = getEnvVar('VITE_SUPABASE_URL');
-const SUPABASE_ANON_KEY = getEnvVar('VITE_SUPABASE_ANON_KEY');
-
-// Log a warning if keys are missing to help debugging
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error('Supabase configuration is missing. Ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set in your environment variables.');
+  console.warn('Supabase credentials missing. App may not function correctly.');
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -95,12 +80,10 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
-    // If keys are missing, don't attempt to fetch
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    if (!SUPABASE_URL) {
       setLoading(false);
       return;
     }
-
     try {
       const [
         { data: users },
@@ -122,7 +105,7 @@ const App: React.FC = () => {
         loanRequests: (loanRequests || []).map(mapLoanRequest)
       }));
     } catch (error) {
-      console.error('Error fetching data from Supabase:', error);
+      console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
     }
@@ -130,8 +113,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+    if (!SUPABASE_URL) return;
 
     const channels = [
       supabase.channel('users-all').on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, fetchData).subscribe(),
@@ -201,7 +183,6 @@ const App: React.FC = () => {
       member_id: deposit.memberId,
       member_name: deposit.memberName,
       amount: deposit.amount,
-      // Fixed typo: changed payment_date to paymentDate
       payment_date: deposit.paymentDate,
       description: deposit.description,
       notes: deposit.notes,
@@ -216,7 +197,6 @@ const App: React.FC = () => {
       member_id: updatedDeposit.memberId,
       member_name: updatedDeposit.memberName,
       amount: updatedDeposit.amount,
-      // Fixed typo: changed payment_date to paymentDate
       payment_date: updatedDeposit.paymentDate,
       description: updatedDeposit.description,
       notes: updatedDeposit.notes,
