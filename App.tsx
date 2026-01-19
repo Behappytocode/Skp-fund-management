@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+/// <reference types="vite/client" />
+import React, { useState, useEffect, useCallback } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { createClient } from '@supabase/supabase-js';
 import { AppState, User, UserRole, UserStatus, Deposit, Loan, LoanRequest, Installment } from './types.ts';
 import Login from './components/Auth/Login.tsx';
 import Signup from './components/Auth/Signup.tsx';
@@ -14,19 +16,50 @@ import MemberCircle from './components/Member/MemberCircle.tsx';
 import DeveloperProfile from './components/Developer/DeveloperProfile.tsx';
 import UserProfile from './components/Profile/UserProfile.tsx';
 
-const INITIAL_DATA: AppState = {
-  users: [
-    { 
-      id: '1', 
-      name: 'Abubakar', 
-      email: 'admin@fund.com', 
-      role: UserRole.ADMIN, 
-      status: UserStatus.APPROVED, 
-      balance: 0,
-      designation: 'Full Stack Developer',
-      avatar: 'https://images.unsplash.com/photo-1633332755192-727a05c4013d?q=80&w=200&h=200&auto=format&fit=crop'
-    }
-  ],
+// Initialize Supabase Client using Vite Environment Variables
+// Added vite/client reference at the top of the file to fix 'Property env does not exist on type ImportMeta' TS error
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Data Mapping Helpers (SQL snake_case to JS camelCase)
+const mapDeposit = (d: any): Deposit => ({
+  id: d.id,
+  memberId: d.member_id,
+  memberName: d.member_name,
+  amount: Number(d.amount),
+  paymentDate: d.payment_date,
+  entryDate: d.entry_date,
+  receiptImage: d.receipt_image,
+  notes: d.notes,
+  description: d.description
+});
+
+const mapLoan = (l: any): Loan => ({
+  id: l.id,
+  memberId: l.member_id,
+  memberName: l.member_name,
+  totalAmount: Number(l.total_amount),
+  recoverableAmount: Number(l.recoverable_amount),
+  waiverAmount: Number(l.waiver_amount),
+  term: l.term,
+  installments: l.installments,
+  issuedDate: l.issued_date,
+  status: l.status as 'ACTIVE' | 'COMPLETED'
+});
+
+const mapLoanRequest = (r: any): LoanRequest => ({
+  id: r.id,
+  memberId: r.member_id,
+  memberName: r.member_name,
+  amount: Number(r.amount),
+  term: r.term,
+  requestDate: r.request_date,
+  status: r.status as 'PENDING' | 'APPROVED' | 'REJECTED'
+});
+
+const INITIAL_STATE: AppState = {
+  users: [],
   deposits: [],
   loans: [],
   loanRequests: [],
@@ -34,157 +67,188 @@ const INITIAL_DATA: AppState = {
 };
 
 const App: React.FC = () => {
-  const [state, setState] = useState<AppState>(() => {
-    const saved = localStorage.getItem('fund_app_state');
-    if (saved) {
-      try {
-        return JSON.parse(saved) as AppState;
-      } catch (e) {
-        return INITIAL_DATA;
-      }
+  const [state, setState] = useState<AppState>(INITIAL_STATE);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [
+        { data: users },
+        { data: deposits },
+        { data: loans },
+        { data: loanRequests }
+      ] = await Promise.all([
+        supabase.from('users').select('*'),
+        supabase.from('deposits').select('*').order('entry_date', { ascending: false }),
+        supabase.from('loans').select('*').order('issued_date', { ascending: false }),
+        supabase.from('loan_requests').select('*').order('request_date', { ascending: false })
+      ]);
+
+      setState(prev => ({
+        ...prev,
+        users: (users || []) as User[],
+        deposits: (deposits || []).map(mapDeposit),
+        loans: (loans || []).map(mapLoan),
+        loanRequests: (loanRequests || []).map(mapLoanRequest)
+      }));
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
     }
-    return INITIAL_DATA;
-  });
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('fund_app_state', JSON.stringify(state));
-  }, [state]);
+    fetchData();
+
+    const channels = [
+      supabase.channel('users-all').on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, fetchData).subscribe(),
+      supabase.channel('deposits-all').on('postgres_changes', { event: '*', schema: 'public', table: 'deposits' }, fetchData).subscribe(),
+      supabase.channel('loans-all').on('postgres_changes', { event: '*', schema: 'public', table: 'loans' }, fetchData).subscribe(),
+      supabase.channel('requests-all').on('postgres_changes', { event: '*', schema: 'public', table: 'loan_requests' }, fetchData).subscribe(),
+    ];
+
+    return () => {
+      channels.forEach(channel => channel.unsubscribe());
+    };
+  }, [fetchData]);
 
   const login = (email: string, role: UserRole) => {
     const user = state.users.find(u => u.email === email && u.role === role);
     if (!user) return { success: false, message: 'Invalid credentials.' };
-    
-    if (user.status === UserStatus.PENDING) {
-      return { success: false, message: 'Your account is pending admin approval.' };
-    }
-    if (user.status === UserStatus.REJECTED) {
-      return { success: false, message: 'Your access request was declined.' };
-    }
+    if (user.status === UserStatus.PENDING) return { success: false, message: 'Your account is pending approval.' };
+    if (user.status === UserStatus.REJECTED) return { success: false, message: 'Your access request was declined.' };
 
     setState(prev => ({ ...prev, currentUser: user }));
+    localStorage.setItem('fund_app_session', JSON.stringify(user));
     return { success: true };
   };
 
-  const logout = () => setState(prev => ({ ...prev, currentUser: null }));
+  useEffect(() => {
+    const savedUser = localStorage.getItem('fund_app_session');
+    if (savedUser) {
+      try {
+        setState(prev => ({ ...prev, currentUser: JSON.parse(savedUser) }));
+      } catch (e) {
+        localStorage.removeItem('fund_app_session');
+      }
+    }
+  }, []);
 
-  const signup = (name: string, email: string, role: UserRole) => {
+  const logout = () => {
+    setState(prev => ({ ...prev, currentUser: null }));
+    localStorage.removeItem('fund_app_session');
+  };
+
+  const signup = async (name: string, email: string, role: UserRole) => {
     if (state.users.some(u => u.email === email)) return false;
     const status = role === UserRole.ADMIN ? UserStatus.APPROVED : UserStatus.PENDING;
     const newUser: User = { id: Date.now().toString(), name, email, role, status, balance: 0 };
-    setState(prev => ({
-      ...prev,
-      users: [...prev.users, newUser]
-    }));
-    return true;
+    const { error } = await supabase.from('users').insert([newUser]);
+    return !error;
   };
 
-  const updateUserProfile = (userData: Partial<User>) => {
+  const updateUserProfile = async (userData: Partial<User>) => {
     if (!state.currentUser) return;
-    setState(prev => {
-      const updatedUsers = prev.users.map(u => 
-        u.id === prev.currentUser?.id ? { ...u, ...userData } : u
-      );
-      const updatedCurrentUser = { ...prev.currentUser, ...userData } as User;
-      return { ...prev, users: updatedUsers, currentUser: updatedCurrentUser };
-    });
+    const { error } = await supabase.from('users').update(userData).eq('id', state.currentUser.id);
+    if (!error) {
+      setState(prev => ({
+        ...prev,
+        currentUser: prev.currentUser ? { ...prev.currentUser, ...userData } : null
+      }));
+    }
   };
 
-  const updateUserStatus = (userId: string, status: UserStatus) => {
-    setState(prev => ({
-      ...prev,
-      users: prev.users.map(u => u.id === userId ? { ...u, status } : u)
-    }));
+  const updateUserStatus = async (userId: string, status: UserStatus) => {
+    await supabase.from('users').update({ status }).eq('id', userId);
   };
 
-  const addDeposit = (deposit: Omit<Deposit, 'id' | 'entryDate'>) => {
-    const newDeposit: Deposit = {
-      ...deposit,
+  const addDeposit = async (deposit: Omit<Deposit, 'id' | 'entryDate'>) => {
+    const dbDeposit = {
       id: Date.now().toString(),
-      entryDate: new Date().toISOString()
+      member_id: deposit.memberId,
+      member_name: deposit.memberName,
+      amount: deposit.amount,
+      payment_date: deposit.payment_date,
+      description: deposit.description,
+      notes: deposit.notes,
+      receipt_image: deposit.receiptImage,
+      entry_date: new Date().toISOString()
     };
-    setState(prev => ({
-      ...prev,
-      deposits: [newDeposit, ...prev.deposits]
-    }));
+    await supabase.from('deposits').insert([dbDeposit]);
   };
 
-  const updateDeposit = (updatedDeposit: Deposit) => {
-    setState(prev => ({
-      ...prev,
-      deposits: prev.deposits.map(d => d.id === updatedDeposit.id ? updatedDeposit : d)
-    }));
+  const updateDeposit = async (updatedDeposit: Deposit) => {
+    const dbDeposit = {
+      member_id: updatedDeposit.memberId,
+      member_name: updatedDeposit.memberName,
+      amount: updatedDeposit.amount,
+      payment_date: updatedDeposit.payment_date,
+      description: updatedDeposit.description,
+      notes: updatedDeposit.notes,
+      receipt_image: updatedDeposit.receiptImage
+    };
+    await supabase.from('deposits').update(dbDeposit).eq('id', updatedDeposit.id);
   };
 
-  const deleteDeposit = (id: string) => {
-    setState(prev => ({
-      ...prev,
-      deposits: prev.deposits.filter(d => d.id !== id)
-    }));
+  const deleteDeposit = async (id: string) => {
+    await supabase.from('deposits').delete().eq('id', id);
   };
 
-  const addLoanRequest = (amount: number, term: number) => {
+  const addLoanRequest = async (amount: number, term: number) => {
     if (!state.currentUser) return;
-    const newRequest: LoanRequest = {
+    const dbRequest = {
       id: Date.now().toString(),
-      memberId: state.currentUser.id,
-      memberName: state.currentUser.name,
+      member_id: state.currentUser.id,
+      member_name: state.currentUser.name,
       amount,
       term,
-      requestDate: new Date().toISOString(),
+      request_date: new Date().toISOString(),
       status: 'PENDING'
     };
-    setState(prev => ({
-      ...prev,
-      loanRequests: [newRequest, ...prev.loanRequests]
-    }));
+    await supabase.from('loan_requests').insert([dbRequest]);
   };
 
-  const updateLoanRequestStatus = (requestId: string, status: 'APPROVED' | 'REJECTED') => {
-    setState(prev => {
-      const request = prev.loanRequests.find(r => r.id === requestId);
-      if (!request || request.status !== 'PENDING') return prev;
+  const updateLoanRequestStatus = async (requestId: string, status: 'APPROVED' | 'REJECTED') => {
+    const request = state.loanRequests.find(r => r.id === requestId);
+    if (!request || request.status !== 'PENDING') return;
 
-      let newLoans = [...prev.loans];
-      if (status === 'APPROVED') {
-        const recoverableAmount = request.amount * 0.7;
-        const waiverAmount = request.amount * 0.3;
-        const monthlyAmount = recoverableAmount / request.term;
-        
-        const installments: Installment[] = Array.from({ length: request.term }).map((_, i) => {
-          const dueDate = new Date();
-          dueDate.setMonth(dueDate.getMonth() + i + 1);
-          return {
-            id: `inst-${Date.now()}-${i}`,
-            amount: Number(monthlyAmount.toFixed(2)),
-            dueDate: dueDate.toISOString(),
-            status: 'PENDING' as const
-          };
-        });
-
-        const newLoan: Loan = {
-          id: Date.now().toString(),
-          memberId: request.memberId,
-          memberName: request.memberName,
-          totalAmount: request.amount,
-          recoverableAmount,
-          waiverAmount,
-          term: request.term,
-          installments,
-          issuedDate: new Date().toISOString(),
-          status: 'ACTIVE'
+    if (status === 'APPROVED') {
+      const recoverableAmount = request.amount * 0.7;
+      const waiverAmount = request.amount * 0.3;
+      const monthlyAmount = recoverableAmount / request.term;
+      
+      const installments: Installment[] = Array.from({ length: request.term }).map((_, i) => {
+        const dueDate = new Date();
+        dueDate.setMonth(dueDate.getMonth() + i + 1);
+        return {
+          id: `inst-${Date.now()}-${i}`,
+          amount: Number(monthlyAmount.toFixed(2)),
+          dueDate: dueDate.toISOString(),
+          status: 'PENDING' as const
         };
-        newLoans = [newLoan, ...newLoans];
-      }
+      });
 
-      return {
-        ...prev,
-        loans: newLoans,
-        loanRequests: prev.loanRequests.map(r => r.id === requestId ? { ...r, status } : r)
+      const dbLoan = {
+        id: Date.now().toString(),
+        member_id: request.memberId,
+        member_name: request.memberName,
+        total_amount: request.amount,
+        recoverable_amount: recoverableAmount,
+        waiver_amount: waiverAmount,
+        term: request.term,
+        installments,
+        issued_date: new Date().toISOString(),
+        status: 'ACTIVE'
       };
-    });
+
+      await supabase.from('loans').insert([dbLoan]);
+    }
+
+    await supabase.from('loan_requests').update({ status }).eq('id', requestId);
   };
 
-  const addLoan = (loanData: { memberId: string, amount: number, term: number }) => {
+  const addLoan = async (loanData: { memberId: string, amount: number, term: number }) => {
     const member = state.users.find(u => u.id === loanData.memberId);
     if (!member) return;
 
@@ -203,83 +267,67 @@ const App: React.FC = () => {
       };
     });
 
-    const newLoan: Loan = {
+    const dbLoan = {
       id: Date.now().toString(),
-      memberId: loanData.memberId,
-      memberName: member.name,
-      totalAmount: loanData.amount,
-      recoverableAmount,
-      waiverAmount,
+      member_id: loanData.memberId,
+      member_name: member.name,
+      total_amount: loanData.amount,
+      recoverable_amount: recoverableAmount,
+      waiver_amount: waiverAmount,
       term: loanData.term,
       installments,
-      issuedDate: new Date().toISOString(),
+      issued_date: new Date().toISOString(),
       status: 'ACTIVE'
     };
 
-    setState(prev => ({
-      ...prev,
-      loans: [newLoan, ...prev.loans]
-    }));
+    await supabase.from('loans').insert([dbLoan]);
   };
 
-  const updateLoan = (loanId: string, loanData: { amount: number, term: number }) => {
-    setState(prev => {
-      const existingLoan = prev.loans.find(l => l.id === loanId);
-      if (!existingLoan) return prev;
+  const updateLoan = async (loanId: string, loanData: { amount: number, term: number }) => {
+    const existingLoan = state.loans.find(l => l.id === loanId);
+    if (!existingLoan) return;
 
-      const recoverableAmount = loanData.amount * 0.7;
-      const waiverAmount = loanData.amount * 0.3;
-      const monthlyAmount = recoverableAmount / loanData.term;
+    const recoverableAmount = loanData.amount * 0.7;
+    const waiverAmount = loanData.amount * 0.3;
+    const monthlyAmount = recoverableAmount / loanData.term;
 
-      const installments: Installment[] = Array.from({ length: loanData.term }).map((_, i) => {
-        const dueDate = new Date(existingLoan.issuedDate);
-        dueDate.setMonth(dueDate.getMonth() + i + 1);
-        return {
-          id: `inst-${Date.now()}-${i}`,
-          amount: Number(monthlyAmount.toFixed(2)),
-          dueDate: dueDate.toISOString(),
-          status: 'PENDING' as const
-        };
-      });
-
-      const updatedLoan: Loan = {
-        ...existingLoan,
-        totalAmount: loanData.amount,
-        recoverableAmount,
-        waiverAmount,
-        term: loanData.term,
-        installments,
-        status: 'ACTIVE'
-      };
-
+    const installments: Installment[] = Array.from({ length: loanData.term }).map((_, i) => {
+      const dueDate = new Date(existingLoan.issuedDate);
+      dueDate.setMonth(dueDate.getMonth() + i + 1);
       return {
-        ...prev,
-        loans: prev.loans.map(l => l.id === loanId ? updatedLoan : l)
+        id: `inst-${Date.now()}-${i}`,
+        amount: Number(monthlyAmount.toFixed(2)),
+        dueDate: dueDate.toISOString(),
+        status: 'PENDING' as const
       };
     });
+
+    await supabase.from('loans').update({
+      total_amount: loanData.amount,
+      recoverable_amount: recoverableAmount,
+      waiver_amount: waiverAmount,
+      term: loanData.term,
+      installments
+    }).eq('id', loanId);
   };
 
-  const deleteLoan = (id: string) => {
-    setState(prev => ({
-      ...prev,
-      loans: prev.loans.filter(l => l.id !== id)
-    }));
+  const deleteLoan = async (id: string) => {
+    await supabase.from('loans').delete().eq('id', id);
   };
 
-  const payInstallment = (loanId: string, installmentId: string) => {
-    setState(prev => {
-      const updatedLoans = prev.loans.map(loan => {
-        if (loan.id === loanId) {
-          const updatedInstallments = loan.installments.map(inst => 
-            inst.id === installmentId ? { ...inst, status: 'PAID' as const, paidDate: new Date().toISOString() } : inst
-          );
-          const allPaid = updatedInstallments.every(i => i.status === 'PAID');
-          return { ...loan, installments: updatedInstallments, status: allPaid ? 'COMPLETED' as const : 'ACTIVE' as const };
-        }
-        return loan;
-      });
-      return { ...prev, loans: updatedLoans };
-    });
+  const payInstallment = async (loanId: string, installmentId: string) => {
+    const loan = state.loans.find(l => l.id === loanId);
+    if (!loan) return;
+
+    const updatedInstallments = loan.installments.map(inst => 
+      inst.id === installmentId ? { ...inst, status: 'PAID' as const, paidDate: new Date().toISOString() } : inst
+    );
+    const allPaid = updatedInstallments.every(i => i.status === 'PAID');
+    
+    await supabase.from('loans').update({ 
+      installments: updatedInstallments, 
+      status: allPaid ? 'COMPLETED' : 'ACTIVE' 
+    }).eq('id', loanId);
   };
 
   const backupData = () => {
@@ -287,23 +335,24 @@ const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `emergency_fund_backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `skp_fund_backup_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
   };
 
-  const restoreData = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = JSON.parse(e.target?.result as string);
-        setState(data);
-        alert('Data restored successfully!');
-      } catch (err) {
-        alert('Invalid backup file');
-      }
-    };
-    reader.readAsText(file);
+  const restoreData = async (file: File) => {
+    alert('For security, bulk restore is handled via the Supabase Dashboard SQL editor.');
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Syncing Fellowship Data...</p>
+        </div>
+      </div>
+    );
+  }
 
   const isAdmin = state.currentUser?.role === UserRole.ADMIN;
 
