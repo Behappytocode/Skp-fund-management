@@ -1,7 +1,5 @@
-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { createClient } from '@supabase/supabase-js';
 import { AppState, User, UserRole, UserStatus, Deposit, Loan, LoanRequest, Installment } from './types.ts';
 import Login from './components/Auth/Login.tsx';
 import Signup from './components/Auth/Signup.tsx';
@@ -17,55 +15,11 @@ import DeveloperProfile from './components/Developer/DeveloperProfile.tsx';
 import UserProfile from './components/Profile/UserProfile.tsx';
 
 /**
- * Access environment variables via process.env as per platform guidelines. 
- * On Vercel, ensure these are added in Project Settings > Environment Variables.
+ * Replit Database Interface
+ * This implementation assumes a simple Express/Node proxy on Replit to access the DB.
+ * For production sync, we store the entire state as one JSON blob for simplicity in a small circle.
  */
-// Fix: Use process.env instead of import.meta.env to resolve TypeScript property access errors
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
-// Fix: Use process.env instead of import.meta.env to resolve TypeScript property access errors
-const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || '';
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.warn('Supabase credentials missing. App may not function correctly.');
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-// Data Mapping Helpers (SQL snake_case to JS camelCase)
-const mapDeposit = (d: any): Deposit => ({
-  id: d.id,
-  memberId: d.member_id,
-  memberName: d.member_name,
-  amount: Number(d.amount),
-  paymentDate: d.payment_date,
-  entryDate: d.entry_date,
-  receiptImage: d.receipt_image,
-  notes: d.notes,
-  description: d.description
-});
-
-const mapLoan = (l: any): Loan => ({
-  id: l.id,
-  memberId: l.member_id,
-  memberName: l.member_name,
-  totalAmount: Number(l.total_amount),
-  recoverableAmount: Number(l.recoverable_amount),
-  waiverAmount: Number(l.waiver_amount),
-  term: l.term,
-  installments: l.installments,
-  issuedDate: l.issued_date,
-  status: l.status as 'ACTIVE' | 'COMPLETED'
-});
-
-const mapLoanRequest = (r: any): LoanRequest => ({
-  id: r.id,
-  memberId: r.member_id,
-  memberName: r.member_name,
-  amount: Number(r.amount),
-  term: r.term,
-  requestDate: r.request_date,
-  status: r.status as 'PENDING' | 'APPROVED' | 'REJECTED'
-});
+const DB_KEY = 'skp_fund_state_v1';
 
 const INITIAL_STATE: AppState = {
   users: [],
@@ -78,55 +32,56 @@ const INITIAL_STATE: AppState = {
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
   const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const lastSyncRef = useRef<number>(0);
 
-  const fetchData = useCallback(async () => {
-    if (!SUPABASE_URL) {
-      setLoading(false);
-      return;
-    }
+  // Load state from Replit Database
+  const loadState = useCallback(async () => {
     try {
-      const [
-        { data: users },
-        { data: deposits },
-        { data: loans },
-        { data: loanRequests }
-      ] = await Promise.all([
-        supabase.from('users').select('*'),
-        supabase.from('deposits').select('*').order('entry_date', { ascending: false }),
-        supabase.from('loans').select('*').order('issued_date', { ascending: false }),
-        supabase.from('loan_requests').select('*').order('request_date', { ascending: false })
-      ]);
-
-      setState(prev => ({
-        ...prev,
-        users: (users || []) as User[],
-        deposits: (deposits || []).map(mapDeposit),
-        loans: (loans || []).map(mapLoan),
-        loanRequests: (loanRequests || []).map(mapLoanRequest)
-      }));
+      const response = await fetch(`/api/db?key=${DB_KEY}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data) {
+          setState(prev => ({
+            ...data,
+            currentUser: prev.currentUser // Preserve local login session
+          }));
+        }
+      }
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('Replit DB Load Error:', error);
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // Save state to Replit Database
+  const saveState = useCallback(async (newState: AppState) => {
+    setIsSyncing(true);
+    try {
+      // Don't save the currentUser to the cloud database
+      const dataToSave = { ...newState, currentUser: null };
+      await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: DB_KEY, value: dataToSave })
+      });
+      lastSyncRef.current = Date.now();
+    } catch (error) {
+      console.error('Replit DB Save Error:', error);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
+
+  // Initial load and Polling for sync across devices (every 5 seconds)
   useEffect(() => {
-    fetchData();
-    if (!SUPABASE_URL) return;
+    loadState();
+    const interval = setInterval(loadState, 5000);
+    return () => clearInterval(interval);
+  }, [loadState]);
 
-    const channels = [
-      supabase.channel('users-all').on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, fetchData).subscribe(),
-      supabase.channel('deposits-all').on('postgres_changes', { event: '*', schema: 'public', table: 'deposits' }, fetchData).subscribe(),
-      supabase.channel('loans-all').on('postgres_changes', { event: '*', schema: 'public', table: 'loans' }, fetchData).subscribe(),
-      supabase.channel('requests-all').on('postgres_changes', { event: '*', schema: 'public', table: 'loan_requests' }, fetchData).subscribe(),
-    ];
-
-    return () => {
-      channels.forEach(channel => channel.unsubscribe());
-    };
-  }, [fetchData]);
-
+  // Handle User Auth locally with cloud backup
   const login = (email: string, role: UserRole) => {
     const user = state.users.find(u => u.email === email && u.role === role);
     if (!user) return { success: false, message: 'Invalid credentials.' };
@@ -142,7 +97,8 @@ const App: React.FC = () => {
     const savedUser = localStorage.getItem('fund_app_session');
     if (savedUser) {
       try {
-        setState(prev => ({ ...prev, currentUser: JSON.parse(savedUser) }));
+        const parsed = JSON.parse(savedUser);
+        setState(prev => ({ ...prev, currentUser: parsed }));
       } catch (e) {
         localStorage.removeItem('fund_app_session');
       }
@@ -157,75 +113,87 @@ const App: React.FC = () => {
   const signup = async (name: string, email: string, role: UserRole) => {
     if (state.users.some(u => u.email === email)) return false;
     const status = role === UserRole.ADMIN ? UserStatus.APPROVED : UserStatus.PENDING;
-    const newUser: User = { id: Date.now().toString(), name, email, role, status, balance: 0 };
-    const { error } = await supabase.from('users').insert([newUser]);
-    return !error;
+    const newUser: User = { 
+      id: `usr-${Date.now()}`, 
+      name, 
+      email, 
+      role, 
+      status, 
+      balance: 0 
+    };
+    
+    const newState = { ...state, users: [...state.users, newUser] };
+    setState(newState);
+    await saveState(newState);
+    return true;
   };
 
   const updateUserProfile = async (userData: Partial<User>) => {
     if (!state.currentUser) return;
-    const { error } = await supabase.from('users').update(userData).eq('id', state.currentUser.id);
-    if (!error) {
-      setState(prev => ({
-        ...prev,
-        currentUser: prev.currentUser ? { ...prev.currentUser, ...userData } : null
-      }));
-    }
+    const updatedUsers = state.users.map(u => 
+      u.id === state.currentUser?.id ? { ...u, ...userData } : u
+    );
+    const newState = { 
+      ...state, 
+      users: updatedUsers,
+      currentUser: { ...state.currentUser, ...userData }
+    };
+    setState(newState);
+    await saveState(newState);
   };
 
   const updateUserStatus = async (userId: string, status: UserStatus) => {
-    await supabase.from('users').update({ status }).eq('id', userId);
+    const updatedUsers = state.users.map(u => u.id === userId ? { ...u, status } : u);
+    const newState = { ...state, users: updatedUsers };
+    setState(newState);
+    await saveState(newState);
   };
 
   const addDeposit = async (deposit: Omit<Deposit, 'id' | 'entryDate'>) => {
-    const dbDeposit = {
-      id: Date.now().toString(),
-      member_id: deposit.memberId,
-      member_name: deposit.memberName,
-      amount: deposit.amount,
-      payment_date: deposit.paymentDate,
-      description: deposit.description,
-      notes: deposit.notes,
-      receipt_image: deposit.receiptImage,
-      entry_date: new Date().toISOString()
+    const newDeposit: Deposit = {
+      ...deposit,
+      id: `dep-${Date.now()}`,
+      entryDate: new Date().toISOString()
     };
-    await supabase.from('deposits').insert([dbDeposit]);
+    const newState = { ...state, deposits: [newDeposit, ...state.deposits] };
+    setState(newState);
+    await saveState(newState);
   };
 
   const updateDeposit = async (updatedDeposit: Deposit) => {
-    const dbDeposit = {
-      member_id: updatedDeposit.memberId,
-      member_name: updatedDeposit.memberName,
-      amount: updatedDeposit.amount,
-      payment_date: updatedDeposit.paymentDate,
-      description: updatedDeposit.description,
-      notes: updatedDeposit.notes,
-      receipt_image: updatedDeposit.receiptImage
-    };
-    await supabase.from('deposits').update(dbDeposit).eq('id', updatedDeposit.id);
+    const updatedDeposits = state.deposits.map(d => d.id === updatedDeposit.id ? updatedDeposit : d);
+    const newState = { ...state, deposits: updatedDeposits };
+    setState(newState);
+    await saveState(newState);
   };
 
   const deleteDeposit = async (id: string) => {
-    await supabase.from('deposits').delete().eq('id', id);
+    const newState = { ...state, deposits: state.deposits.filter(d => d.id !== id) };
+    setState(newState);
+    await saveState(newState);
   };
 
   const addLoanRequest = async (amount: number, term: number) => {
     if (!state.currentUser) return;
-    const dbRequest = {
-      id: Date.now().toString(),
-      member_id: state.currentUser.id,
-      member_name: state.currentUser.name,
+    const newRequest: LoanRequest = {
+      id: `req-${Date.now()}`,
+      memberId: state.currentUser.id,
+      memberName: state.currentUser.name,
       amount,
       term,
-      request_date: new Date().toISOString(),
+      requestDate: new Date().toISOString(),
       status: 'PENDING'
     };
-    await supabase.from('loan_requests').insert([dbRequest]);
+    const newState = { ...state, loanRequests: [newRequest, ...(state.loanRequests || [])] };
+    setState(newState);
+    await saveState(newState);
   };
 
   const updateLoanRequestStatus = async (requestId: string, status: 'APPROVED' | 'REJECTED') => {
     const request = state.loanRequests.find(r => r.id === requestId);
     if (!request || request.status !== 'PENDING') return;
+
+    let updatedLoans = [...state.loans];
 
     if (status === 'APPROVED') {
       const recoverableAmount = request.amount * 0.7;
@@ -243,23 +211,25 @@ const App: React.FC = () => {
         };
       });
 
-      const dbLoan = {
-        id: Date.now().toString(),
-        member_id: request.memberId,
-        member_name: request.memberName,
-        total_amount: request.amount,
-        recoverable_amount: recoverableAmount,
-        waiver_amount: waiverAmount,
+      const newLoan: Loan = {
+        id: `loan-${Date.now()}`,
+        memberId: request.memberId,
+        memberName: request.memberName,
+        totalAmount: request.amount,
+        recoverableAmount: recoverableAmount,
+        waiverAmount: waiverAmount,
         term: request.term,
         installments,
-        issued_date: new Date().toISOString(),
+        issuedDate: new Date().toISOString(),
         status: 'ACTIVE'
       };
-
-      await supabase.from('loans').insert([dbLoan]);
+      updatedLoans = [newLoan, ...updatedLoans];
     }
 
-    await supabase.from('loan_requests').update({ status }).eq('id', requestId);
+    const updatedRequests = state.loanRequests.map(r => r.id === requestId ? { ...r, status } : r);
+    const newState = { ...state, loanRequests: updatedRequests, loans: updatedLoans };
+    setState(newState);
+    await saveState(newState);
   };
 
   const addLoan = async (loanData: { memberId: string, amount: number, term: number }) => {
@@ -281,20 +251,22 @@ const App: React.FC = () => {
       };
     });
 
-    const dbLoan = {
-      id: Date.now().toString(),
-      member_id: loanData.memberId,
-      member_name: member.name,
-      total_amount: loanData.amount,
-      recoverable_amount: recoverableAmount,
-      waiver_amount: waiverAmount,
+    const newLoan: Loan = {
+      id: `loan-${Date.now()}`,
+      memberId: loanData.memberId,
+      memberName: member.name,
+      totalAmount: loanData.amount,
+      recoverableAmount: recoverableAmount,
+      waiverAmount: waiverAmount,
       term: loanData.term,
       installments,
-      issued_date: new Date().toISOString(),
+      issuedDate: new Date().toISOString(),
       status: 'ACTIVE'
     };
 
-    await supabase.from('loans').insert([dbLoan]);
+    const newState = { ...state, loans: [newLoan, ...state.loans] };
+    setState(newState);
+    await saveState(newState);
   };
 
   const updateLoan = async (loanId: string, loanData: { amount: number, term: number }) => {
@@ -316,17 +288,24 @@ const App: React.FC = () => {
       };
     });
 
-    await supabase.from('loans').update({
-      total_amount: loanData.amount,
-      recoverable_amount: recoverableAmount,
-      waiver_amount: waiverAmount,
+    const updatedLoans = state.loans.map(l => l.id === loanId ? {
+      ...l,
+      totalAmount: loanData.amount,
+      recoverableAmount,
+      waiverAmount,
       term: loanData.term,
       installments
-    }).eq('id', loanId);
+    } : l);
+
+    const newState = { ...state, loans: updatedLoans };
+    setState(newState);
+    await saveState(newState);
   };
 
   const deleteLoan = async (id: string) => {
-    await supabase.from('loans').delete().eq('id', id);
+    const newState = { ...state, loans: state.loans.filter(l => l.id !== id) };
+    setState(newState);
+    await saveState(newState);
   };
 
   const payInstallment = async (loanId: string, installmentId: string) => {
@@ -338,10 +317,15 @@ const App: React.FC = () => {
     );
     const allPaid = updatedInstallments.every(i => i.status === 'PAID');
     
-    await supabase.from('loans').update({ 
-      installments: updatedInstallments, 
-      status: allPaid ? 'COMPLETED' : 'ACTIVE' 
-    }).eq('id', loanId);
+    const updatedLoans = state.loans.map(l => l.id === loanId ? {
+      ...l,
+      installments: updatedInstallments,
+      status: allPaid ? 'COMPLETED' : 'ACTIVE'
+    } : l);
+
+    const newState = { ...state, loans: updatedLoans };
+    setState(newState);
+    await saveState(newState);
   };
 
   const backupData = () => {
@@ -354,7 +338,18 @@ const App: React.FC = () => {
   };
 
   const restoreData = async (file: File) => {
-    alert('For security, bulk restore is handled via the Supabase Dashboard SQL editor.');
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const restoredState = JSON.parse(e.target?.result as string);
+        setState({ ...restoredState, currentUser: state.currentUser });
+        await saveState(restoredState);
+        alert('Data restored successfully!');
+      } catch (err) {
+        alert('Invalid backup file.');
+      }
+    };
+    reader.readAsText(file);
   };
 
   if (loading) {
@@ -362,7 +357,7 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Syncing Fellowship Data...</p>
+          <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Accessing Replit Cloud...</p>
         </div>
       </div>
     );
@@ -377,7 +372,17 @@ const App: React.FC = () => {
         <Route path="/signup" element={state.currentUser ? <Navigate to="/" /> : <Signup onSignup={signup} />} />
         
         <Route path="/" element={state.currentUser ? <Layout state={state} onLogout={logout} /> : <Navigate to="/login" />}>
-          <Route index element={<Dashboard state={state} />} />
+          <Route index element={
+            <div className="relative">
+              {isSyncing && (
+                <div className="absolute top-0 right-0 z-50 flex items-center gap-2 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+                  <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-pulse"></div>
+                  <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">Syncing...</span>
+                </div>
+              )}
+              <Dashboard state={state} />
+            </div>
+          } />
           <Route path="developer" element={<DeveloperProfile state={state} />} />
           <Route path="profile" element={<UserProfile user={state.currentUser!} onUpdate={updateUserProfile} />} />
           

@@ -1,6 +1,6 @@
-
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { AppState } from '../../types';
+import { GoogleGenAI } from "@google/genai";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend 
@@ -11,7 +11,9 @@ import {
   ArrowDownRight, 
   PieChart as PieIcon,
   CircleDollarSign,
-  Users
+  Users,
+  Sparkles,
+  Loader2
 } from 'lucide-react';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444'];
@@ -23,6 +25,9 @@ interface DashboardProps {
 const formatCurrency = (val: number) => `Rs. ${Math.round(val).toLocaleString()}`;
 
 const Dashboard: React.FC<DashboardProps> = ({ state }) => {
+  const [insight, setInsight] = useState<string>("");
+  const [isGenerating, setIsGenerating] = useState(false);
+
   const stats = useMemo(() => {
     const totalDeposits = state.deposits.reduce((acc, d) => acc + d.amount, 0);
     const totalIssued = state.loans.reduce((acc, l) => acc + l.totalAmount, 0);
@@ -42,6 +47,32 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       totalMembers: state.users.length
     };
   }, [state]);
+
+  // AI Auditor using Gemini to provide financial health summary
+  const generateInsight = async () => {
+    setIsGenerating(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Analyze these community fund statistics:
+          - Balance: ${stats.currentBalance}
+          - Total Deposits: ${stats.totalDeposits}
+          - Total Loans: ${stats.totalIssued}
+          - Recoveries: ${stats.totalRecoveries}
+          - Waivers: ${stats.totalWaivers}
+          - Member Count: ${stats.totalMembers}
+          
+          Provide a professional 2-sentence financial health audit summary.`,
+      });
+      setInsight(response.text || "No insights generated.");
+    } catch (err) {
+      console.error('Gemini API Error:', err);
+      setInsight("Unable to generate AI audit at this time.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const memberChartData = useMemo(() => {
     return state.users.map(u => {
@@ -77,6 +108,33 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         <p className="text-slate-500 text-sm mt-0.5">Automated fund tracking & audit overview.</p>
       </header>
 
+      {/* AI Fund Auditor Card */}
+      <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-[2.5rem] p-6 text-white shadow-xl shadow-slate-200/50 relative overflow-hidden group">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-3xl -mr-16 -mt-16 group-hover:bg-indigo-500/20 transition-all duration-700"></div>
+        <div className="relative z-10">
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-indigo-400" />
+              <h3 className="font-bold uppercase tracking-widest text-[10px] text-indigo-200">Gemini Fund Auditor</h3>
+            </div>
+            <button 
+              onClick={generateInsight}
+              disabled={isGenerating}
+              className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50"
+            >
+              {isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Analyze Fund'}
+            </button>
+          </div>
+          {insight ? (
+            <p className="text-indigo-100 text-sm leading-relaxed animate-in fade-in slide-in-from-top-2 duration-500 font-medium">
+              {insight}
+            </p>
+          ) : (
+            <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] italic">Click analyze for real-time financial health audit...</p>
+          )}
+        </div>
+      </div>
+
       {/* Main Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title="Current Balance" value={stats.currentBalance} icon={CircleDollarSign} color="bg-indigo-600" />
@@ -85,7 +143,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         <StatCard title="Recoveries" value={stats.totalRecoveries} icon={ArrowDownRight} color="bg-blue-500" />
       </div>
 
-      {/* Waiver Audit Summary - Moved here from bottom */}
+      {/* Waiver Audit Summary */}
       <div className="bg-slate-900 rounded-3xl p-6 text-white flex flex-col md:flex-row justify-between items-center gap-4 shadow-xl shadow-slate-200/50">
         <div className="text-center md:text-left">
           <h3 className="text-lg font-bold">Waiver Audit Summary</h3>
