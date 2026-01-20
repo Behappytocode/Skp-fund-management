@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -30,7 +31,8 @@ const mapDeposit = (d: any): Deposit => ({
   memberId: d.member_id,
   memberName: d.member_name,
   amount: Number(d.amount),
-  payment_date: d.payment_date,
+  // Fix: changed payment_date to paymentDate to match Deposit interface defined in types.ts
+  paymentDate: d.payment_date,
   entryDate: d.entry_date,
   receiptImage: d.receipt_image,
   notes: d.notes,
