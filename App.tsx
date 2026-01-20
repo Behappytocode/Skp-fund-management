@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AppState, User, UserRole, UserStatus, Deposit, Loan, LoanRequest, Installment } from './types';
@@ -16,9 +15,9 @@ import MemberCircle from './components/Member/MemberCircle';
 import DeveloperProfile from './components/Developer/DeveloperProfile';
 import UserProfile from './components/Profile/UserProfile';
 
-// Safe environment variable access
-const SUPABASE_URL = (process.env as any).VITE_SUPABASE_URL || '';
-const SUPABASE_KEY = (process.env as any).VITE_SUPABASE_ANON_KEY || '';
+// Robust environment variable access for Vite/Vercel
+const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || (process.env as any)?.VITE_SUPABASE_URL || '';
+const SUPABASE_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || (process.env as any)?.VITE_SUPABASE_ANON_KEY || '';
 
 // Initialize Supabase only if keys exist
 const supabase: SupabaseClient | null = SUPABASE_URL && SUPABASE_KEY 
@@ -31,7 +30,7 @@ const mapDeposit = (d: any): Deposit => ({
   memberId: d.member_id,
   memberName: d.member_name,
   amount: Number(d.amount),
-  paymentDate: d.payment_date,
+  payment_date: d.payment_date,
   entryDate: d.entry_date,
   receiptImage: d.receipt_image,
   notes: d.notes,
@@ -109,7 +108,6 @@ const App: React.FC = () => {
     }
   }, [fetchData]);
 
-  // Auth recovery from LocalStorage
   useEffect(() => {
     const saved = localStorage.getItem('fund_app_session');
     if (saved) {
@@ -183,6 +181,7 @@ const App: React.FC = () => {
       payment_date: d.paymentDate,
       description: d.description,
       notes: d.notes,
+      // Fix: Access receiptImage property instead of receipt_image which is not in the interface
       receipt_image: d.receiptImage
     }).eq('id', d.id);
   };
@@ -265,7 +264,7 @@ const App: React.FC = () => {
           </div>
           <h2 className="text-xl font-black text-slate-900 mb-2">Configuration Required</h2>
           <p className="text-slate-500 text-sm mb-6 leading-relaxed">
-            Please add your <strong>VITE_SUPABASE_URL</strong> and <strong>VITE_SUPABASE_ANON_KEY</strong> to your Vercel Environment Variables to use the app.
+            Please add your <strong>VITE_SUPABASE_URL</strong> and <strong>VITE_SUPABASE_ANON_KEY</strong> to your Vercel Environment Variables.
           </p>
           <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest bg-slate-50 p-3 rounded-xl">Missing database keys</div>
         </div>
@@ -277,7 +276,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-50 flex items-center justify-center">
       <div className="flex flex-col items-center gap-4">
         <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Syncing with Cloud...</p>
+        <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Connecting to Supabase...</p>
       </div>
     </div>
   );
